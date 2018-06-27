@@ -10,6 +10,7 @@ from scipy.io import loadmat
 
 IMAGERY_PATH = '/Users/rmsare/data/Ucayali/images/'
 MASK_PATH = '/Users/rmsare/data/Ucayali/masks/'
+STRUCT_FIELD_NAME = 'cmap'
 
 
 def get_raster_profile(directory):
@@ -25,7 +26,7 @@ def get_raster_profile(directory):
 
 def read_data(filename, shape):
     struct = loadmat(filename)
-    data = np.array(struct['cmap'])
+    data = np.array(struct[STRUCT_FIELD_NAME])
     data = data.reshape(shape, order='F')
     return data
 
@@ -44,6 +45,7 @@ def process_directory(directory):
     done_files = [f for f in all_files if '.tif' in f and f[0] == 'C']
     done_files = [f.replace('tif', 'mat') for f in done_files]
     in_files = list(set(in_files) - set(done_files))
+
     for f in in_files:
         filename = os.path.join(directory, f)
         save_file_as_tiff(filename, profile, shape)
