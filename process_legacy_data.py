@@ -14,7 +14,10 @@ MASK_PATH = '/Users/rmsare/data/Ucayali/masks/'
 
 def get_raster_profile(directory):
     region_name = directory.split('/')[-1]
-    filename = os.path.join(directory, 'base_' + region_name + '_1.tif')
+    files = os.listdir(directory)
+    available_tif_files = [f for f in files if '.tif' in f]
+    in_file = available_tif_files[0]
+    filename = os.path.join(directory, in_file)
     with rasterio.open(filename) as r:
         profile = r.profile
         profile.update(count=1)
@@ -36,9 +39,12 @@ def process_directory(directory):
     profile = get_raster_profile(directory)
     shape = (profile['height'], profile['width'])
     
-    files = os.listdir(directory)
-    files = [f for f in files if '.mat' in f and f[0] == 'C']
-    for f in files:
+    all_files = os.listdir(directory)
+    in_files = [f for f in all_files if '.mat' in f and f[0] == 'C']
+    done_files = [f for f in all_files if '.tif' in f and f[0] == 'C']
+    done_files = [f.replace('tif', 'mat') for f in done_files]
+    in_files = list(set(in_files) - set(done_files))
+    for f in in_files:
         filename = os.path.join(directory, f)
         save_file_as_tiff(filename, profile, shape)
 
