@@ -8,8 +8,8 @@ import pandas as pd
 import geopandas as gpd
 import matplotlib.pyplot as plt
 from itertools import product, tee
-from shapely.geometry import shape, LineString, MultiLineString, Point
-from shapely.ops import linemerge, snap, split
+from shapely.geometry import shape, LineString, MultiLineString, MultiPoint, Point
+from shapely.ops import linemerge, nearest_points, snap, split
 
 
 COLUMNS = ['Waypoint/location', 'lat', 'lon', 
@@ -28,15 +28,24 @@ def pairwise(iterable):
     next(b, None)
     return zip(a, b)
 
+
 def process_centerline(centerline, direction, bank):
     base = 'split/KY18_permafrost_{}_{}.shp'
     filename = base.format(direction, bank)
-    gdf = gdf.from_file(filename)
-    gdf, centerline = snap_to_centerline(gdf, centerline)
-    line_gdf = split_centerline(gdf, centerline)
-    line_gdf = map_observations(gdf, line_gdf)
+    gdf = gpd.read_file(filename)
+    gdf = snap_to_nearest(gdf, centerline)
 
-    out_filename = filename.replace('permafrost', 'splitcenterline')
+    line_gdf = assign_point_observations(gdf, centerline)
+    line_gdf = propagate_observations(line_gdf, 'permafrost', direction[0])
+
+    out_filename = filename.replace('permafrost', 'centerline')
+
+    keep = list(line_gdf.columns)
+    geoms = ['geometry_left', 'geometry_right', 'index_right']
+    keep = [col for col in keep if col not in geoms]
+    line_gdf = line_gdf[keep]
+    
+    line_gdf = gpd.GeoDataFrame(line_gdf)
     line_gdf.to_file(out_filename)
 
 
@@ -64,24 +73,17 @@ def load_field_notes(filename):
     return gdf
 
 
-def map_observations(gdf, line_gdf):
-    """
-    
-    Assumes that the waypoint number increases in the direction of travel
-
-    For example, if waypoint 1 has a 'Y' permafrost observation, the center
-    line segments between waypoints 1 and 2 will be labelled as 'Y'
-    """
-
-    # In the case of Koyukuk, the observer is travelling NE -> SW
-    # if direction == 'u':
-    # In the case of Koyukuk, the observer is travelling SW -> NE
-    # elif direction =='d':
-
-
 def delete_nodata_points(gdf):
     keep = ~np.isnan(gdf.geometry[::].x) & ~np.isnan(gdf.geometry[::].y)
     return gdf[keep]
+
+
+def lines_to_points(lines):
+    points = []
+    for line in lines:
+        for p in line.coords:
+            points.append(p)
+    return MultiPoint(points)
 
 
 def separate_by_direction(gdf):
@@ -95,13 +97,40 @@ def separate_by_bank(gdf):
     right = gdf.bank == 'R'
     return gdf[left], gdf[right]
 
-
-def snap_to_centerline(gdf, line):
+def assign_point_observations(gdf, line):
     lines = [LineString([p1, p2]) for p1, p2 in pairwise(line['coordinates'])]
-    lines_gdf = gpd.GeoDataFrame(geometry=lines)
-    lines = lines_gdf.geometry.unary_union
+
+    geometry = [f for f in lines]
+    lines_gdf = gpd.GeoDataFrame(geometry=geometry)
+
+    out = gpd.sjoin(lines_gdf, gdf, how='left')
+    out['geometry'] = out.geometry_left
+    out = out.fillna('')
+    out = gpd.GeoDataFrame(out)
     
-    snapped = [lines.interpolate(lines.project(p)) for p in gdf.geometry] 
+    return out 
+
+
+def propagate_observations(gdf, col, direction):
+    if direction == 'd':
+        rows = list(gdf.iterrows())
+        for i, r in rows[:-1]:
+            if gdf.iloc[i+1][col] == '':
+                gdf.at[i+1, col] = r[col]
+    elif direction == 'u':
+        rows = list(gdf.iterrows())[::-1]
+        for i, r in rows[:-1]:
+            if gdf.iloc[i-1][col] == '':
+                gdf.at[i-1, col] = r[col]
+    gdf = gpd.GeoDataFrame(gdf)
+
+    return gdf
+
+
+def snap_to_nearest(gdf, line):
+    points= MultiPoint([p for p in line['coordinates']])
+    
+    snapped = [nearest_points(points, p)[0] for p in gdf.geometry] 
 
     gdf = gdf.assign(snapped=snapped)
     gdf = gdf.set_geometry('snapped')
@@ -109,26 +138,20 @@ def snap_to_centerline(gdf, line):
     return gdf
 
 
+# XXX: This method fails to split correctly due to a floating point issue
+# in shapely.ops.split
 def split_centerline(gdf, line):
     lines = [LineString([p1, p2]) for p1, p2 in pairwise(line['coordinates'])]
     lines_gdf = gpd.GeoDataFrame(geometry=lines)
     split_lines = linemerge(lines_gdf.geometry.unary_union)
 
+    gdf = snap_to_nearest(gdf, line)
     points = gdf.geometry.unary_union
-    points = snap(points, split_lines, 0.0001)
     split_lines = split(split_lines, points)
-    split_lines = MultiLineString(split_lines)
 
     index = np.arange(len(split_lines))
-    data = {'index' : index, 'permafrost' : len(index) * ['']}
     geometry = [f for f in split_lines]
-    lines_gdf = gpd.GeoDataFrame(data=data, 
-                                 geometry=geometry,
-                                 columns=['index', 'permafrost'])
-
-    lines_gdf.plot(linewidth=2, cmap='Set1', zorder=0)
-    gdf.plot(marker='^', zorder=1, ax=plt.gca())
-    plt.show()
+    lines_gdf = gpd.GeoDataFrame(geometry=geometry)
 
     return lines_gdf
 
