@@ -128,12 +128,8 @@ def propagate_observations_inner(gdf, col):
     for i, row in gdf.iterrows():
         val = gdf.iat[i, jcol]
         if i < n-1:
-            pred = [i, copy(gdf.iat[i, 2]), copy(gdf.iat[i, jcol])]
-            before = [i+1, copy(gdf.iat[i+1, 2]), copy(gdf.iat[i+1, jcol])]
             if gdf.iloc[i+1][col] == '' and val != '':
                 gdf.iat[i+1, jcol] = val
-                after = [i+1, gdf.iat[i+1, 2], gdf.iat[i+1, jcol]]
-                print('{}: {} -> {}'.format(pred, before, after))
     return gdf
 
 
