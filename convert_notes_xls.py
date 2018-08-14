@@ -7,18 +7,17 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 import matplotlib.pyplot as plt
-from copy import copy
 from itertools import product, tee
-from shapely.geometry import shape, LineString, MultiLineString, MultiPoint, Point
-from shapely.ops import linemerge, nearest_points, snap, split
+from shapely.geometry import LineString, MultiPoint, Point
+from shapely.ops import linemerge, nearest_points, split
 
 
-COLUMNS = ['Waypoint/location', 'lat', 'lon', 
-           'ele', 'time', 'name', 
+COLUMNS = ['Waypoint/location', 'lat', 'lon',
+           'ele', 'time', 'name',
            'driving direction', 'bank L/R', 'original perma ID',
            'original notes']
 
-RENAMED_COLUMNS = ['WP', 'lat', 'lon', 
+RENAMED_COLUMNS = ['WP', 'lat', 'lon',
                    'elev', 'timestamp', 'name',
                    'direction', 'bank', 'permafrost',
                    'notes']
@@ -46,9 +45,9 @@ def process_centerline(centerline, direction, bank, debug=False):
     geoms = ['geometry_left', 'geometry_right', 'index_right']
     keep = [col for col in keep if col not in geoms]
     line_gdf = line_gdf[keep]
-    
+
     line_gdf = gpd.GeoDataFrame(line_gdf)
-    
+
     if debug:
         line_gdf.plot('permafrost', cmap='RdBu', linewidth=2)
         gdf.plot(marker='^', ax=plt.gca())
@@ -62,7 +61,7 @@ def process_file(filename):
     gdf = load_field_notes(filename)
     gdf = delete_nodata_points(gdf)
     gdf = standardize_uncertain_observations(gdf)
-    
+
     upriver, downriver = separate_by_direction(gdf)
     left, right = separate_by_bank(upriver)
     left.to_file('split/KY18_permafrost_upriver_left.shp')
@@ -119,7 +118,7 @@ def assign_point_observations(gdf, line):
     out = out.fillna('')
     out = gpd.GeoDataFrame(out)
 
-    return out 
+    return out
 
 
 def propagate_observations_inner(gdf, col):
@@ -136,7 +135,7 @@ def propagate_observations_inner(gdf, col):
 def propagate_observations(gdf, col, direction):
     if direction == 'd':
         gdf = propagate_observations_inner(gdf, col)
-    elif direction =='u':
+    elif direction == 'u':
         gdf.index = reversed(gdf.index)
         gdf = gdf.sort_index()
         gdf = propagate_observations_inner(gdf, col)
@@ -146,9 +145,9 @@ def propagate_observations(gdf, col, direction):
 
 
 def snap_to_nearest(gdf, line):
-    points= MultiPoint([p for p in line['coordinates']])
-    
-    snapped = [nearest_points(points, p)[0] for p in gdf.geometry] 
+    points = MultiPoint([p for p in line['coordinates']])
+
+    snapped = [nearest_points(points, p)[0] for p in gdf.geometry]
 
     gdf = gdf.assign(snapped=snapped)
     gdf = gdf.set_geometry('snapped')
@@ -167,7 +166,6 @@ def split_centerline(gdf, line):
     points = gdf.geometry.unary_union
     split_lines = split(split_lines, points)
 
-    index = np.arange(len(split_lines))
     geometry = [f for f in split_lines]
     lines_gdf = gpd.GeoDataFrame(geometry=geometry)
 
@@ -193,4 +191,4 @@ if __name__ == "__main__":
     banks = ['left', 'right']
 
     for d, b in product(directions, banks):
-        process_centerline(centerline, d, b) 
+        process_centerline(centerline, d, b)
