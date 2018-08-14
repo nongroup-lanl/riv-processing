@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 import matplotlib.pyplot as plt
+from copy import copy
 from itertools import product, tee
 from shapely.geometry import shape, LineString, MultiLineString, MultiPoint, Point
 from shapely.ops import linemerge, nearest_points, snap, split
@@ -29,10 +30,11 @@ def pairwise(iterable):
     return zip(a, b)
 
 
-def process_centerline(centerline, direction, bank):
+def process_centerline(centerline, direction, bank, debug=False):
     base = 'split/KY18_permafrost_{}_{}.shp'
     filename = base.format(direction, bank)
     gdf = gpd.read_file(filename)
+    gdf.crs = {'init': 'epsg:4326'}
     gdf = snap_to_nearest(gdf, centerline)
 
     line_gdf = assign_point_observations(gdf, centerline)
@@ -46,6 +48,13 @@ def process_centerline(centerline, direction, bank):
     line_gdf = line_gdf[keep]
     
     line_gdf = gpd.GeoDataFrame(line_gdf)
+    
+    if debug:
+        line_gdf.plot('permafrost', cmap='RdBu', linewidth=2)
+        gdf.plot(marker='^', ax=plt.gca())
+        plt.title(out_filename)
+        plt.show()
+
     line_gdf.to_file(out_filename)
 
 
@@ -97,31 +106,44 @@ def separate_by_bank(gdf):
     right = gdf.bank == 'R'
     return gdf[left], gdf[right]
 
+
 def assign_point_observations(gdf, line):
     lines = [LineString([p1, p2]) for p1, p2 in pairwise(line['coordinates'])]
 
     geometry = [f for f in lines]
     lines_gdf = gpd.GeoDataFrame(geometry=geometry)
+    lines_gdf.crs = {'init': 'epsg:4326'}
 
     out = gpd.sjoin(lines_gdf, gdf, how='left')
     out['geometry'] = out.geometry_left
     out = out.fillna('')
     out = gpd.GeoDataFrame(out)
-    
+
     return out 
+
+
+def propagate_observations_inner(gdf, col):
+    n = len(gdf)
+    jcol = np.where(gdf.columns == col)[0][0]
+    for i, row in gdf.iterrows():
+        val = gdf.iat[i, jcol]
+        if i < n-1:
+            pred = [i, copy(gdf.iat[i, 2]), copy(gdf.iat[i, jcol])]
+            before = [i+1, copy(gdf.iat[i+1, 2]), copy(gdf.iat[i+1, jcol])]
+            if gdf.iloc[i+1][col] == '' and val != '':
+                gdf.iat[i+1, jcol] = val
+                after = [i+1, gdf.iat[i+1, 2], gdf.iat[i+1, jcol]]
+                print('{}: {} -> {}'.format(pred, before, after))
+    return gdf
 
 
 def propagate_observations(gdf, col, direction):
     if direction == 'd':
-        rows = list(gdf.iterrows())
-        for i, r in rows[:-1]:
-            if gdf.iloc[i+1][col] == '':
-                gdf.at[i+1, col] = r[col]
-    elif direction == 'u':
-        rows = list(gdf.iterrows())[::-1]
-        for i, r in rows[:-1]:
-            if gdf.iloc[i-1][col] == '':
-                gdf.at[i-1, col] = r[col]
+        gdf = propagate_observations_inner(gdf, col)
+    elif direction =='u':
+        gdf.index = reversed(gdf.index)
+        gdf = gdf.sort_index()
+        gdf = propagate_observations_inner(gdf, col)
     gdf = gpd.GeoDataFrame(gdf)
 
     return gdf
@@ -171,7 +193,7 @@ if __name__ == "__main__":
     c = fiona.open(centerline_filename)[0]
     centerline = c['geometry']
 
-    directions = ['upriver', 'downriver']
+    directions = ['downriver', 'upriver']
     banks = ['left', 'right']
 
     for d, b in product(directions, banks):
