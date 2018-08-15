@@ -81,31 +81,6 @@ def load_field_notes(filename):
     return gdf
 
 
-def delete_nodata_points(gdf):
-    keep = ~np.isnan(gdf.geometry[::].x) & ~np.isnan(gdf.geometry[::].y)
-    return gdf[keep]
-
-
-def lines_to_points(lines):
-    points = []
-    for line in lines:
-        for p in line.coords:
-            points.append(p)
-    return MultiPoint(points)
-
-
-def separate_by_direction(gdf):
-    up = gdf.direction == 'u'
-    down = gdf.direction == 'd'
-    return gdf[up], gdf[down]
-
-
-def separate_by_bank(gdf):
-    left = gdf.bank == 'L'
-    right = gdf.bank == 'R'
-    return gdf[left], gdf[right]
-
-
 def assign_point_observations(gdf, line):
     lines = [LineString([p1, p2]) for p1, p2 in pairwise(line['coordinates'])]
 
@@ -119,6 +94,11 @@ def assign_point_observations(gdf, line):
     out = gpd.GeoDataFrame(out)
 
     return out
+
+
+def delete_nodata_points(gdf):
+    keep = ~np.isnan(gdf.geometry[::].x) & ~np.isnan(gdf.geometry[::].y)
+    return gdf[keep]
 
 
 def propagate_observations_inner(gdf, col):
@@ -142,6 +122,18 @@ def propagate_observations(gdf, col, direction):
     gdf = gpd.GeoDataFrame(gdf)
 
     return gdf
+
+
+def separate_by_direction(gdf):
+    up = gdf.direction == 'u'
+    down = gdf.direction == 'd'
+    return gdf[up], gdf[down]
+
+
+def separate_by_bank(gdf):
+    left = gdf.bank == 'L'
+    right = gdf.bank == 'R'
+    return gdf[left], gdf[right]
 
 
 def snap_to_nearest(gdf, line):
